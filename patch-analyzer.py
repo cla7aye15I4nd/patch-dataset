@@ -26,13 +26,10 @@ def main():
     # Create the patch directory
     commit_dir = os.path.join(patch_dir, commit_id)
     patch_file = os.path.join(commit_dir, f'{commit_id}.diff')
-    before_folder = os.path.join(commit_dir, 'before')
     after_folder = os.path.join(commit_dir, 'after')
 
     if not os.path.exists(commit_dir):
         os.mkdir(commit_dir)
-    if not os.path.exists(before_folder):
-        os.mkdir(before_folder)
     if not os.path.exists(after_folder):
         os.mkdir(after_folder)
 
@@ -45,6 +42,8 @@ def main():
         bitcode_folder = os.path.join(after_folder, folder)
         if not os.path.exists(bitcode_folder):
             os.makedirs(bitcode_folder)
+
+    compile_linux(commit_id, affected_files, after_folder)
 
 def check_patch(commit_id):
     print('[+] Checking patch %s' % commit_id)
@@ -89,5 +88,25 @@ def get_affected_files(commit_id, patch_text):
     
     return affected_files
 
+def compile_linux(commit_id, affected_files, target_folder):
+    """ Compile the Linux kernel """
+    print('[+] Compiling Linux kernel')
+
+    # Let user decide if they want to compile the kernel
+    print('[+] Do you want to compile the kernel? (y/n)')
+    choice = input().lower()
+
+    if choice != 'y':
+        print('[-] Exiting')
+        return
+    
+    # Clean and remove all bitcode files
+    os.chdir(linux_dir)
+    
+    os.system('make clean')
+    os.system('rm -rf *.bc')
+
+    os.system('make menuconfig')
+    
 if __name__ == '__main__':
     sys.exit(main()) 
