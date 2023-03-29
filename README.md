@@ -26,3 +26,11 @@ cd linux
 git checkout `patch_commit_id`
 make CC=$HOME/llvm-project/build/bin/clang -j`nproc`
 ```
+
+### Datapoint Format
+Make a new directory named `<commit id>` and put the following files in it:
+
+- `<commit id>.patch`: the original patch file.
+- `tag`: the patch's tag.
+- `before`: the bitcodes of the file before the patch is applied.
+- `after`: the bitcodes of the file after the patch is applied.
