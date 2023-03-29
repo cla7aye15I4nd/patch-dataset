@@ -1,9 +1,13 @@
 #!/usr/bin/env python
 
 import os
+import multiprocessing
 import requests
+import subprocess
 import sys
+import time
 import unidiff
+
 
 base_dir = os.path.dirname(os.path.realpath(__file__))
 
@@ -43,7 +47,7 @@ def main():
         if not os.path.exists(bitcode_folder):
             os.makedirs(bitcode_folder)
 
-    compile_linux(commit_id, affected_files, after_folder)
+    compile_linux(affected_files, after_folder)
 
 def check_patch(commit_id):
     print('[+] Checking patch %s' % commit_id)
@@ -88,7 +92,7 @@ def get_affected_files(commit_id, patch_text):
     
     return affected_files
 
-def compile_linux(commit_id, affected_files, target_folder):
+def compile_linux(affected_files, target_folder):
     """ Compile the Linux kernel """
     print('[+] Compiling Linux kernel')
 
@@ -108,5 +112,30 @@ def compile_linux(commit_id, affected_files, target_folder):
 
     os.system('make menuconfig')
     
+    # make CC=$HOME/llvm-project/build/bin/clang -j`nproc`
+    nproc = multiprocessing.cpu_count()
+    proc = subprocess.Popen(['make', 'CC=$HOME/llvm-project/build/bin/clang', f'-j{nproc}'],
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE)
+
+    while proc.poll() is None:
+        ## Check if all files in the affected folders have been compiled
+        flag = True
+        for folder, files in affected_files.items():
+            for file in files:
+                flag &= os.path.exists(os.path.join(linux_dir, folder, file + '.bc'))
+        
+        if flag:
+            proc.terminate()
+            break
+
+    # Copy the bitcode files to the target folder
+    for folder, files in affected_files.items():
+        for file in files:
+            if not os.path.exists(os.path.join(linux_dir, folder, file + '.bc')):
+                print('[-] Failed to compile %s' % file)
+                continue
+            os.system(f'cp {os.path.join(linux_dir, folder, file + ".bc")} {os.path.join(target_folder, folder)}')
+
 if __name__ == '__main__':
     sys.exit(main()) 
