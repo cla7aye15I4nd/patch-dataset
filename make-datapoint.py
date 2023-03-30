@@ -2,6 +2,7 @@
 
 import os
 import multiprocessing
+import pathlib
 import requests
 import subprocess
 import sys
@@ -114,9 +115,8 @@ def compile_linux(affected_files, target_folder):
     
     # make CC=$HOME/llvm-project/build/bin/clang -j`nproc`
     nproc = multiprocessing.cpu_count()
-    proc = subprocess.Popen(['make', 'CC=$HOME/llvm-project/build/bin/clang', f'-j{nproc}'],
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE)
+
+    proc = subprocess.Popen(['make', f'CC={pathlib.Path.home()}/llvm-project/build/bin/clang', f'-j{nproc}'])
 
     while proc.poll() is None:
         ## Check if all files in the affected folders have been compiled
@@ -128,6 +128,8 @@ def compile_linux(affected_files, target_folder):
         if flag:
             proc.terminate()
             break
+            
+        time.sleep(1)
 
     # Copy the bitcode files to the target folder
     for folder, files in affected_files.items():
