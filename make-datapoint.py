@@ -24,15 +24,17 @@ parser.add_argument('--linux-dir',
 parser.add_argument('--data-dir',
                     default=os.path.join(base_dir, 'data'),
                     help='Path to the data directory')
+parser.add_argument('--error-file',
+                    default=os.path.join(base_dir, 'err.log'),
+                    help='Path to the error log file')
 parser.add_argument('--skip-compile',
                     help='Skip the compilation step', action='store_true')
 
 args = parser.parse_args()
 
-
-def eprint(*args, **kwargs):
-    print(*args, file=sys.stderr, **kwargs)
-
+def eprint(*_args, **kwargs):
+    with open(args.error_file, 'a') as f:
+        print(*_args, file=f, **kwargs)
 
 def main():
     print('[+] DataPoint Maker')
@@ -40,6 +42,9 @@ def main():
     print('[+] Data directory: %s' % args.data_dir)
     clear_linux()
 
+    with open(args.error_file, 'w') as f:
+        f.write('')
+    
     if args.file:
         print('[+] Reading patch list from %s' % args.file)
         with open(args.file, 'r') as f:
@@ -50,7 +55,6 @@ def main():
     else:
         commit_id = args.commit_id
         create_datapoint(commit_id)
-
 
 def create_datapoint(commit_id):
     patch_text = check_patch(commit_id)
@@ -82,9 +86,14 @@ def create_datapoint(commit_id):
         if not os.path.exists(bitcode_after_folder):
             os.makedirs(bitcode_after_folder)
 
-    fail = compile_linux(affected_files, after_folder)
-    if fail:
-        eprint(f'[{commit_id}] {fail}')
+    switch_commit(commit_id)
+    after_fail = compile_linux(affected_files, after_folder)
+
+    switch_commit(parent_id)
+    before_fail = compile_linux(affected_files, before_folder)
+
+    eprint(f'[{parent_id}] {before_fail}')
+    eprint(f'[{commit_id}] {after_fail}')
 
     with open(patch_json, 'w') as f:
         info = {
@@ -94,6 +103,12 @@ def create_datapoint(commit_id):
         }
         json.dump(info, f, indent=4)
 
+
+def switch_commit(commit_id):
+    clear_linux()
+    os.chdir(args.linux_dir)
+    os.system(f'git checkout {commit_id}')
+    os.chdir(base_dir)
 
 def check_patch(commit_id):
     print('[+] Checking patch %s' % commit_id)
@@ -122,7 +137,7 @@ def get_affected_files(commit_id, patch_text):
     # Checkout commit
     print('[+] Checking out commit %s' % commit_id)
     os.chdir(args.linux_dir)
-    os.system(f'git checkout {commit_id}  2>/dev/null')
+    os.system(f'git checkout {commit_id}')
 
     with os.popen(f'git show {commit_id}^ | head -n 1') as cmd:
         parent_id = cmd.read().strip().split()[1]
@@ -150,8 +165,21 @@ def compile_linux(affected_files, target_folder):
     clear_linux()
 
     os.chdir(args.linux_dir)
+
+    spliter = '# Kernel hacking'
     os.system(
-        f'make CC={pathlib.Path.home()}/llvm-project/build/bin/clang allyesconfig > /dev/null 2>&1')
+        f'make CC={pathlib.Path.home()}/llvm-project/build/bin/clang defconfig')
+
+    with open('.config', 'r') as f:
+        kernel_hacking = f.read().split(spliter)[1]
+
+    os.system(
+        f'make CC={pathlib.Path.home()}/llvm-project/build/bin/clang allyesconfig')
+
+    with open('.config', 'r') as f:
+        config = f.read().split(spliter)[0] + spliter + kernel_hacking
+    with open('.config', 'w') as f:
+        f.write(config)
 
     # make CC=$HOME/llvm-project/build/bin/clang -j`nproc`
     nproc = multiprocessing.cpu_count()
@@ -165,7 +193,7 @@ def compile_linux(affected_files, target_folder):
                 oname = cname.replace('.c', '.o')
                 target.append(oname)
 
-    cmd = f'make CC={pathlib.Path.home()}/llvm-project/build/bin/clang -j{nproc} {" ".join(target)} > /dev/null 2>&1'
+    cmd = f'make CC={pathlib.Path.home()}/llvm-project/build/bin/clang -j{nproc} {" ".join(target)} < /dev/null'
     os.system(cmd)
 
     fail = []
@@ -183,9 +211,10 @@ def compile_linux(affected_files, target_folder):
 
 def clear_linux():
     os.chdir(args.linux_dir)
-    os.system('make clean > /dev/null 2>&1')
-    os.system('git checkout . > /dev/null 2>&1')
-    os.system('git clean -xdf > /dev/null 2>&1')
+    os.system('make clean')
+    os.system('git checkout .')
+    os.system('git clean -xdf')
+    os.system('git stash')
     os.chdir(base_dir)
 
 
