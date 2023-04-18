@@ -31,6 +31,7 @@ make CC=$HOME/llvm-project/build/bin/clang -j`nproc`
 Make a new directory named `<commit id>` and put the following files in it:
 
 - `patch.diff`: the original patch file.
+- `patch.json`: the patch's metadata.
 - `before`: the bitcodes of the file before the patch is applied.
 - `after`: the bitcodes of the file after the patch is applied.
 - `kernel.patch`: the kernel patch file.
