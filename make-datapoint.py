@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import argparse
 import os
 import multiprocessing
 import pathlib
@@ -8,62 +9,99 @@ import subprocess
 import sys
 import time
 import unidiff
+import json
 
+parser = argparse.ArgumentParser(
+    prog='DataPoint Maker',
+    description='Create a datapoint for the Linux kernel'
+)
 
 base_dir = os.path.dirname(os.path.realpath(__file__))
 
-patch_dir = os.path.join(base_dir, 'data')
-linux_dir = os.path.join(base_dir, 'linux')
+parser.add_argument('commit_id', nargs='?', help='Commit ID of the patch')
+parser.add_argument('--file', help='File containing the patch list')
+parser.add_argument('--linux-dir',
+                    default=os.path.join(base_dir, 'linux'),
+                    help='Path to the Linux kernel directory')
+parser.add_argument('--data-dir', 
+                    default=os.path.join(base_dir, 'data'),
+                    help='Path to the data directory')
+parser.add_argument('--skip-compile', 
+                    help='Skip the compilation step', action='store_true')
+
+args = parser.parse_args() 
 
 def main():
-    if len(sys.argv) < 2:
-        print('Usage: %s <patch commit id>' % sys.argv[0])
-        return 1
+    print('[+] DataPoint Maker')
+    print('[+] Linux directory: %s' % args.linux_dir)
+    print('[+] Data directory: %s' % args.data_dir)
+    clear_linux()
 
-    if not os.path.exists(linux_dir):
-        print('[-] Linux source code not found')
-        return 1
+    if args.file:
+        print('[+] Reading patch list from %s' % args.file)
+        with open(args.file, 'r') as f:
+            commit_set = set(f.read().strip().splitlines())
+            print('[+] Patch Number: %d' % len(commit_set))
+            for commit_id in commit_set:
+                create_datapoint(commit_id)
+    else:
+        commit_id = args.commit_id
+        create_datapoint(commit_id)
 
-    commit_id = sys.argv[1]
-
+def create_datapoint(commit_id):
     patch_text = check_patch(commit_id)
 
     # Create the patch directory
-    commit_dir = os.path.join(patch_dir, commit_id)
-    patch_file = os.path.join(commit_dir, f'{commit_id}.diff')
+    commit_dir = os.path.join(args.data_dir, commit_id)
+    patch_file = os.path.join(commit_dir, 'patch.diff')
+    patch_json = os.path.join(commit_dir, 'patch.json')
+    before_folder = os.path.join(commit_dir, 'before')
     after_folder = os.path.join(commit_dir, 'after')
 
     if not os.path.exists(commit_dir):
         os.mkdir(commit_dir)
+    if not os.path.exists(before_folder):
+        os.mkdir(before_folder)
     if not os.path.exists(after_folder):
         os.mkdir(after_folder)
 
     with open(patch_file, 'w') as f:
         f.write(patch_text)
 
-    affected_files = get_affected_files(commit_id, patch_text)
+    parent_id, affected_files = get_affected_files(commit_id, patch_text)
 
     for folder in affected_files.keys():
-        bitcode_folder = os.path.join(after_folder, folder)
-        if not os.path.exists(bitcode_folder):
-            os.makedirs(bitcode_folder)
+        bitcode_before_folder = os.path.join(before_folder, folder)
+        bitcode_after_folder = os.path.join(after_folder, folder)
+        if not os.path.exists(bitcode_before_folder):
+            os.makedirs(bitcode_before_folder)
+        if not os.path.exists(bitcode_after_folder):
+            os.makedirs(bitcode_after_folder)
+
+    with open(patch_json, 'w') as f:
+        info = {
+            'commit' : commit_id,
+            'parent' : parent_id,
+            'files' : affected_files
+        }
+        json.dump(info, f, indent=4)
 
     compile_linux(affected_files, after_folder)
 
 def check_patch(commit_id):
     print('[+] Checking patch %s' % commit_id)
 
-    # Download the patch 
+    # Download the patch
     url = f'https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/patch/?id={commit_id}'
     r = requests.get(url)
     if r.status_code != 200:
         print('[-] Failed to download patch')
         sys.exit(1)
-    
+
     patch_text = r.text
     r.close()
 
-    return patch_text    
+    return patch_text
 
 def get_affected_files(commit_id, patch_text):
     """ Analyze the which files need to be compiled """
@@ -76,25 +114,31 @@ def get_affected_files(commit_id, patch_text):
 
     # Checkout commit
     print('[+] Checking out commit %s' % commit_id)
-    os.chdir(linux_dir)
+    os.chdir(args.linux_dir)
     os.system(f'git checkout {commit_id}')
-    
+
+    with os.popen(f'git show {commit_id}^ | head -n 1') as cmd:
+        parent_id = cmd.read().strip().split()[1]
+
     print('[+] Modified folders: %s' % modified_folders)
 
     affected_files = {}
     for folder in modified_folders:
         files = []
-        for file in os.listdir(os.path.join(linux_dir, folder)):
+        for file in os.listdir(os.path.join(args.linux_dir, folder)):
             if file.endswith('.c'):
                 files.append(file)
 
         affected_files[folder] = files
         print('[+] Files from %s: %s' % (folder, files))
-    
-    return affected_files
+
+    return parent_id, affected_files
 
 def compile_linux(affected_files, target_folder):
     """ Compile the Linux kernel """
+    if args.skip_compile:
+        return
+
     print('[+] Compiling Linux kernel')
 
     # Let user decide if they want to compile the kernel
@@ -105,39 +149,45 @@ def compile_linux(affected_files, target_folder):
         print('[-] Exiting')
         return
     
-    # Clean and remove all bitcode files
-    os.chdir(linux_dir)
-    
-    os.system('make clean')
-    os.system('rm -rf *.bc')
+    clear_linux()
 
     os.system('make menuconfig')
-    
+
     # make CC=$HOME/llvm-project/build/bin/clang -j`nproc`
     nproc = multiprocessing.cpu_count()
 
-    proc = subprocess.Popen(['make', f'CC={pathlib.Path.home()}/llvm-project/build/bin/clang', f'-j{nproc}'])
+    proc = subprocess.Popen(
+        ['make', f'CC={pathlib.Path.home()}/llvm-project/build/bin/clang', f'-j{nproc}'])
 
     while proc.poll() is None:
-        ## Check if all files in the affected folders have been compiled
+        # Check if all files in the affected folders have been compiled
         flag = True
         for folder, files in affected_files.items():
             for file in files:
-                flag &= os.path.exists(os.path.join(linux_dir, folder, file + '.bc'))
-        
+                flag &= os.path.exists(os.path.join(
+                    args.linux_dir, folder, file + '.bc'))
+
         if flag:
             proc.terminate()
             break
-            
+
         time.sleep(1)
 
     # Copy the bitcode files to the target folder
     for folder, files in affected_files.items():
         for file in files:
-            if not os.path.exists(os.path.join(linux_dir, folder, file + '.bc')):
+            if not os.path.exists(os.path.join(args.linux_dir, folder, file + '.bc')):
                 print('[-] Failed to compile %s' % file)
                 continue
-            os.system(f'cp {os.path.join(linux_dir, folder, file + ".bc")} {os.path.join(target_folder, folder)}')
+            os.system(
+                f'cp {os.path.join(args.linux_dir, folder, file + ".bc")} {os.path.join(target_folder, folder)}')
+
+def clear_linux():
+    os.chdir(args.linux_dir)
+    os.system('make clean')
+    os.system('git checkout .')
+    os.system('git clean -df')
+    os.chdir(base_dir)
 
 if __name__ == '__main__':
-    sys.exit(main()) 
+    sys.exit(main())
