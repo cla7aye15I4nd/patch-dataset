@@ -72,6 +72,11 @@ def create_datapoint(commit_id):
         print('[+] Patch %s already exists' % commit_id)
         return
 
+    parent_id, modified_files, affected_files = get_affected_files(commit_id, patch_text)
+
+    if not modified_files:
+        return
+
     if not os.path.exists(commit_dir):
         os.mkdir(commit_dir)
     if not os.path.exists(before_folder):
@@ -81,8 +86,6 @@ def create_datapoint(commit_id):
 
     with open(patch_file, 'w') as f:
         f.write(patch_text)
-
-    parent_id, modified_files, affected_files = get_affected_files(commit_id, patch_text)
 
     for folder in affected_files.keys():
         bitcode_before_folder = os.path.join(before_folder, folder)
@@ -138,7 +141,8 @@ def get_affected_files(commit_id, patch_text):
     modified_folders = set()
     modified_files = []
     for file in patch:
-        modified_files.append(file.path)
+        if file.path.endswith('.c'):
+            modified_files.append(file.path)
         modified_folders.add(os.path.dirname(file.path))
 
     # Checkout commit
@@ -215,7 +219,7 @@ def compile_linux(affected_files, modified_files, target_folder):
                     f'cp {os.path.join(args.linux_dir, folder, file + ".bc")} {os.path.join(target_folder, folder)}')
 
     for file in modified_files:
-        if file.endswith('.c') and not os.path.exists(os.path.join(target_folder, file + '.bc')):
+        if not os.path.exists(os.path.join(target_folder, file + '.bc')):
             fail.append(file)
 
     os.chdir(base_dir)
