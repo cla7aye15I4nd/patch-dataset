@@ -6,6 +6,7 @@ import multiprocessing
 import pathlib
 import requests
 import sys
+import subprocess
 import unidiff
 import json
 
@@ -215,19 +216,39 @@ def compile_linux(affected_files, modified_files, target_folder):
     os.system(f"yes '' | make CC={pathlib.Path.home()}/llvm-project/build/bin/clang oldconfig")
 
     cmd = f'make CC={pathlib.Path.home()}/llvm-project/build/bin/clang -j{nproc} {" ".join(target)}'
-    os.system(cmd)
 
-    fail = []
-    for folder, files in affected_files.items():
-        for file in files:
-            if os.path.exists(os.path.join(args.linux_dir, folder, file + '.bc')):
-                os.system(
-                    f'cp {os.path.join(args.linux_dir, folder, file + ".bc")} {os.path.join(target_folder, folder)}')
+    compile_times = 0
+    while compile_times < 2:
+        p = subprocess.Popen([cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True, text=True)
+        out, err = p.communicate()
 
-    for file in modified_files:
-        if not os.path.exists(os.path.join(target_folder, file + '.bc')):
-            fail.append(file)
+        fail = []
+        for folder, files in affected_files.items():
+            for file in files:
+                if os.path.exists(os.path.join(args.linux_dir, folder, file + '.bc')):
+                    os.system(
+                        f'cp {os.path.join(args.linux_dir, folder, file + ".bc")} {os.path.join(target_folder, folder)}')
 
+        for file in modified_files:
+            if not os.path.exists(os.path.join(target_folder, file + '.bc')):
+                fail.append(file)
+
+        if len(fail) == 0:
+            break
+
+        compile_times += 1
+
+        print('X'*100)
+        print(err)
+        print('Y'*100)
+        if '#error New address family defined, please update secclass_map' in err:
+            linux_patch = os.path.join(base_dir, 'config', 'secclass_map.patch')
+            os.system(f'patch -p1 < {linux_patch}')
+            continue
+
+        break # do not have any solution
+            
+            
     os.chdir(base_dir)
     return fail
 
