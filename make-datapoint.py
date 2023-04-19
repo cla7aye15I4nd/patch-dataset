@@ -29,7 +29,9 @@ parser.add_argument('--error-file',
                     help='Path to the error log file')
 parser.add_argument('--skip-compile',
                     help='Skip the compilation step', action='store_true')
-parser.add_argument('--rebuild',
+parser.add_argument('--rebuild-all',
+                    help='Rebuild the Linux kernel', action='store_true')
+parser.add_argument('--rebuild-fail',
                     help='Rebuild the Linux kernel', action='store_true')
 
 args = parser.parse_args()
@@ -68,7 +70,11 @@ def create_datapoint(commit_id):
     before_folder = os.path.join(commit_dir, 'before')
     after_folder = os.path.join(commit_dir, 'after')
 
-    if os.path.exists(patch_json) and not args.rebuild:
+    if os.path.exists(patch_json) and not args.rebuild_all:
+        print('[+] Patch %s already exists' % commit_id)
+        return
+    
+    if os.path.exists(patch_file) and not args.rebuild_fail:
         print('[+] Patch %s already exists' % commit_id)
         return
 
