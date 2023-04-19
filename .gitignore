@@ -53,3 +53,5 @@ dkms.conf
 
 rr-bugs*
 err.log
+
+*.tar*
