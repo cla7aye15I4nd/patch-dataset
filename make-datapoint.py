@@ -48,7 +48,7 @@ def main():
     if args.file:
         print('[+] Reading patch list from %s' % args.file)
         with open(args.file, 'r') as f:
-            commit_set = set(f.read().strip().splitlines())
+            commit_set = list(dict.fromkeys(f.read().splitlines()))
             print('[+] Patch Number: %d' % len(commit_set))
             for commit_id in commit_set:
                 create_datapoint(commit_id)
