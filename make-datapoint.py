@@ -178,6 +178,8 @@ def compile_linux(affected_files, target_folder):
 
     with open('.config', 'r') as f:
         config = f.read().split(spliter)[0] + spliter + kernel_hacking
+        config = config.replace('CONFIG_DTC=y', '# CONFIG_DTC=y')
+        config = config.replace('CONFIG_OF', '# CONFIG_OF')
     with open('.config', 'w') as f:
         f.write(config)
 
@@ -192,8 +194,10 @@ def compile_linux(affected_files, target_folder):
             if cname.endswith('.c'):
                 oname = cname.replace('.c', '.o')
                 target.append(oname)
+    
+    os.system(f"yes '' | make CC={pathlib.Path.home()}/llvm-project/build/bin/clang oldconfig")
 
-    cmd = f'make CC={pathlib.Path.home()}/llvm-project/build/bin/clang -j{nproc} {" ".join(target)} < /dev/null'
+    cmd = f'make CC={pathlib.Path.home()}/llvm-project/build/bin/clang -j{nproc} {" ".join(target)}'
     os.system(cmd)
 
     fail = []
