@@ -29,6 +29,8 @@ parser.add_argument('--error-file',
                     help='Path to the error log file')
 parser.add_argument('--skip-compile',
                     help='Skip the compilation step', action='store_true')
+parser.add_argument('--rebuild',
+                    help='Rebuild the Linux kernel', action='store_true')
 
 args = parser.parse_args()
 
@@ -66,6 +68,10 @@ def create_datapoint(commit_id):
     before_folder = os.path.join(commit_dir, 'before')
     after_folder = os.path.join(commit_dir, 'after')
 
+    if os.path.exists(patch_json) and not args.rebuild:
+        print('[+] Patch %s already exists' % commit_id)
+        return
+
     if not os.path.exists(commit_dir):
         os.mkdir(commit_dir)
     if not os.path.exists(before_folder):
@@ -76,7 +82,7 @@ def create_datapoint(commit_id):
     with open(patch_file, 'w') as f:
         f.write(patch_text)
 
-    parent_id, affected_files = get_affected_files(commit_id, patch_text)
+    parent_id, modified_files, affected_files = get_affected_files(commit_id, patch_text)
 
     for folder in affected_files.keys():
         bitcode_before_folder = os.path.join(before_folder, folder)
@@ -87,21 +93,20 @@ def create_datapoint(commit_id):
             os.makedirs(bitcode_after_folder)
 
     switch_commit(commit_id)
-    after_fail = compile_linux(affected_files, after_folder)
-
-    switch_commit(parent_id)
-    before_fail = compile_linux(affected_files, before_folder)
-
-    eprint(f'[{parent_id}] {before_fail}')
+    after_fail = compile_linux(affected_files, modified_files, after_folder)
     eprint(f'[{commit_id}] {after_fail}')
 
-    with open(patch_json, 'w') as f:
-        info = {
-            'commit': commit_id,
-            'parent': parent_id,
-            'files': affected_files
-        }
-        json.dump(info, f, indent=4)
+    if len(after_fail) == 0:
+        switch_commit(parent_id)
+        compile_linux(affected_files, modified_files, before_folder)
+
+        with open(patch_json, 'w') as f:
+            info = {
+                'commit': commit_id,
+                'parent': parent_id,
+                'files': affected_files
+            }
+            json.dump(info, f, indent=4)
 
 
 def switch_commit(commit_id):
@@ -131,7 +136,9 @@ def get_affected_files(commit_id, patch_text):
     patch = unidiff.PatchSet(patch_text.splitlines())
 
     modified_folders = set()
+    modified_files = []
     for file in patch:
+        modified_files.append(file.path)
         modified_folders.add(os.path.dirname(file.path))
 
     # Checkout commit
@@ -154,10 +161,10 @@ def get_affected_files(commit_id, patch_text):
         affected_files[folder] = files
         print('[+] Files from %s: %s' % (folder, files))
 
-    return parent_id, affected_files
+    return parent_id, modified_files, affected_files
 
 
-def compile_linux(affected_files, target_folder):
+def compile_linux(affected_files, modified_files, target_folder):
     """ Compile the Linux kernel """
     if args.skip_compile:
         return
@@ -203,11 +210,13 @@ def compile_linux(affected_files, target_folder):
     fail = []
     for folder, files in affected_files.items():
         for file in files:
-            if not os.path.exists(os.path.join(args.linux_dir, folder, file + '.bc')):
-                fail.append(os.path.join(folder, file))
-                continue
-            os.system(
-                f'cp {os.path.join(args.linux_dir, folder, file + ".bc")} {os.path.join(target_folder, folder)}')
+            if os.path.exists(os.path.join(args.linux_dir, folder, file + '.bc')):
+                os.system(
+                    f'cp {os.path.join(args.linux_dir, folder, file + ".bc")} {os.path.join(target_folder, folder)}')
+
+    for file in modified_files:
+        if file.endswith('.c') and not os.path.exists(os.path.join(target_folder, file + '.bc')):
+            fail.append(file)
 
     os.chdir(base_dir)
     return fail
