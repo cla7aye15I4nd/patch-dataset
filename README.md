@@ -24,6 +24,7 @@ make -j`nproc`
 git clone https://github.com/torvalds/linux.git
 cd linux
 git checkout `patch_commit_id`
+make CC=$HOME/llvm-project/build/bin/clang defconfig
 make CC=$HOME/llvm-project/build/bin/clang -j`nproc`
 ```
 
@@ -35,3 +36,12 @@ Make a new directory named `<commit id>` and put the following files in it:
 - `before`: the bitcodes of the file before the patch is applied.
 - `after`: the bitcodes of the file after the patch is applied.
 - `kernel.patch`: the kernel patch file.
+
+### make-datapoint.py
+
+The `make-datapoint.py` script can be used to automatically generate a patch datapoint. The script follows the following steps to generate the kernel configuration file at `linux/.config`:
+
+1. Combine `defconfig`'s Kernel Hacking part and the other parts of `allyesconfig`, the goal is to enable all the options but not enable the Kernel Hacking part because sanitizer and debug are included in the Kernel Hacking part.
+2. Disable device tree (`CONFIG_OF*` and `CONFIG_DCT`), because device tree is not supported by the current version of Clang.
+
+If the script find that all modified files' bitcodes are generated successfully, it will generate a patch datapoint. Otherwise, it will print the error message and exit.
