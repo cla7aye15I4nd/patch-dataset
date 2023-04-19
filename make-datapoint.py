@@ -220,7 +220,11 @@ def compile_linux(affected_files, modified_files, target_folder):
     compile_times = 0
     while compile_times < 2:
         p = subprocess.Popen([cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True, text=True)
-        out, err = p.communicate()
+        try:
+            out, err = p.communicate()
+        except KeyboardInterrupt:
+            p.kill()
+            out, err = p.communicate()
 
         fail = []
         for folder, files in affected_files.items():
@@ -241,6 +245,10 @@ def compile_linux(affected_files, modified_files, target_folder):
         print('X'*100)
         print(err)
         print('Y'*100)
+        if "implicit declaration of function 'asm_volatile_goto'" in err:
+            linux_patch = os.path.join(base_dir, 'config', 'asm_volatile_goto.patch')
+            os.system(f'patch -p1 < {linux_patch}')
+            continue
         if '#error New address family defined, please update secclass_map' in err:
             linux_patch = os.path.join(base_dir, 'config', 'secclass_map.patch')
             os.system(f'patch -p1 < {linux_patch}')
