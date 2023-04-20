@@ -45,3 +45,5 @@ The `make-datapoint.py` script can be used to automatically generate a patch dat
 2. Disable device tree (`CONFIG_OF*` and `CONFIG_DCT`), because device tree is not supported by the current version of Clang.
 
 If the script find that all modified files' bitcodes are generated successfully, it will generate a patch datapoint. Otherwise, it will print the error message and exit.
+
+run `collect-datapoint.py` to collect the datapoints.
