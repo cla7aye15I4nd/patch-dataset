@@ -75,7 +75,7 @@ def create_datapoint(commit_id):
         print('[+] Patch %s already exists' % commit_id)
         return
     
-    if os.path.exists(patch_file) and not args.rebuild_fail:
+    if os.path.exists(patch_file) and not args.rebuild_fail and not args.rebuild_all:
         print('[+] Patch %s already exists' % commit_id)
         return
 
@@ -167,7 +167,7 @@ def get_affected_files(commit_id, patch_text):
         files = []
         tmp_path = os.path.join(args.linux_dir, folder)
         if os.path.exists(tmp_path):    
-          for file in os.listdir():
+          for file in os.listdir(tmp_path):
               if file.endswith('.c'):
                   files.append(file)
 
