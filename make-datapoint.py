@@ -75,7 +75,7 @@ def create_datapoint(commit_id):
         print('[+] Patch %s already exists' % commit_id)
         return
     
-    if os.path.exists(patch_file) and not args.rebuild_fail:
+    if os.path.exists(patch_file) and not args.rebuild_fail and not args.rebuild_all:
         print('[+] Patch %s already exists' % commit_id)
         return
 
@@ -202,7 +202,7 @@ def compile_linux(affected_files, modified_files, target_folder):
         f.write(config)
 
     # make CC=$HOME/llvm-project/build/bin/clang -j`nproc`
-    nproc = multiprocessing.cpu_count()
+    nproc = multiprocessing.cpu_count() // 2
 
     print('[+] Compiling Linux kernel')
     target = []
@@ -219,12 +219,13 @@ def compile_linux(affected_files, modified_files, target_folder):
 
     compile_times = 0
     while compile_times < 2:
+        print(f'[{compile_times}] Compiling Linux kernel')
         p = subprocess.Popen([cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True, text=True)
         try:
-            out, err = p.communicate()
+            out, err = p.communicate(timeout=len(target)*5)
         except KeyboardInterrupt:
             p.kill()
-            out, err = p.communicate()
+            out, err = p.communicate(timeout=10)
 
         fail = []
         for folder, files in affected_files.items():
@@ -247,11 +248,15 @@ def compile_linux(affected_files, modified_files, target_folder):
         print('Y'*100)
         if "implicit declaration of function 'asm_volatile_goto'" in err:
             linux_patch = os.path.join(base_dir, 'config', 'asm_volatile_goto.patch')
+            print('Try to apply patch %s' % linux_patch)
             os.system(f'patch -p1 < {linux_patch}')
+            print('Try to compile again')
             continue
         if '#error New address family defined, please update secclass_map' in err:
             linux_patch = os.path.join(base_dir, 'config', 'secclass_map.patch')
+            print('Try to apply patch %s' % linux_patch)
             os.system(f'patch -p1 < {linux_patch}')
+            print('Try to compile again')
             continue
 
         break # do not have any solution
